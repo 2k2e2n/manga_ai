@@ -1,273 +1,298 @@
 'use client';
 
+import React, { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import React, { useState, useEffect } from 'react';
-import getWindowSize from '../../../../hooks/getWindowSize';
+import useWindowSize from '../../../../hooks/getWindowSize';
+import Overlay from '../../../../components/Overlay';
 
-// 画像のパスを文字列として定義
-const transparentImg = '/template_img/transparent.png';
-const maskImg = '/template_img/mask1.png';
-const img1 = '/ai_genimg_sample/1.webp';
-const img2 = '/ai_genimg_sample/3.webp';
+const DrawingApp = () => {
+  const canvasRef = useRef(null);
+  const p5Instance = useRef(null);
+  const [width, height] = useWindowSize();
+  const [selectedImageIndex, setSelectedImageIndex] = useState(null);
 
-// react-p5をクライアントサイドでのみ読み込むように設定
-const Sketch = dynamic(() => import('react-p5').then((mod) => mod.default), {
-  ssr: false
-});
+  // 画像タップ時の処理関数
+  const handleImageTap = (imageIndex) => {
+    setSelectedImageIndex(imageIndex);
+  };
 
-export default function P5Sketch() {
-  const [window_width, window_height] = getWindowSize();
-  // 1つ目の画像の状態
-  const [image1X, setImage1X] = useState(200);
-  const [image1Y, setImage1Y] = useState(200);
-  const [image1Size, setImage1Size] = useState(100);
-  const [isDragging1, setIsDragging1] = useState(false);
-  // 2つ目の画像の状態
-  const [image2X, setImage2X] = useState(400);
-  const [image2Y, setImage2Y] = useState(200);
-  const [image2Size, setImage2Size] = useState(100);
-  const [isDragging2, setIsDragging2] = useState(false);
-  // ピンチ操作の状態
-  const [initialPinchDistance, setInitialPinchDistance] = useState(null);
-  const [initialImageSize, setInitialImageSize] = useState(null);
-  const [activeImage, setActiveImage] = useState(null);
-  // 画像の読み込み状態
-  const [img1Loaded, setImg1Loaded] = useState(null);
-  const [img2Loaded, setImg2Loaded] = useState(null);
-  const [bgImg, setBgImg] = useState(null);
-  const [mask, setMask] = useState(null);
-
-  // スクロール防止のためのイベントハンドラ
   useEffect(() => {
-    const preventDefault = (e) => {
-      e.preventDefault();
+    // ウィンドウサイズが0の場合は待機
+    if (width === 0 || height === 0) return;
+
+    // p5.jsを動的にインポート
+    const loadP5 = async () => {
+      const p5 = (await import('p5')).default;
+
+      // p5.jsのインスタンスを作成
+      const sketch = (p) => {
+        /////////////////////////////////// ここからp5.jsを貼り付け ///////////////////////////////////
+
+        let images = []; // 画像オブジェクトの配列
+        let initialDistance = 0; // 初期のピンチ距離
+        let initialScale = 1; // 初期のスケール
+        let lastTapTime = 0; // 最後のタップ時間
+        const doubleTapThreshold = 300; // ダブルタップ判定の閾値（ミリ秒）
+
+        p.preload = function() {
+          // 各画像とマスクを読み込む
+          let img1 = p.loadImage('/ai_genimg_sample/1.webp');
+          let mask1 = p.loadImage('/template_img/mask1.png');
+          let img2 = p.loadImage('/ai_genimg_sample/2.webp');
+          let mask2 = p.loadImage('/template_img/mask2.png');
+          let img3 = p.loadImage('/ai_genimg_sample/3.webp');
+          let mask3 = p.loadImage('/template_img/mask3.png');
+
+          // 新しい画像とマスクを追加する場合は、以下のようにloadImageで読み込み
+          // let img3 = p.loadImage('/ai_genimg_sample/新しい画像.webp');
+          // let mask3 = p.loadImage('/template_img/新しいマスク.png');
+
+          images = [
+            { 
+              img: img1, 
+              mask: mask1, 
+              pos: [50, 50],  // 初期位置 [x, y]
+              dragging: false, 
+              offset: [0, 0],
+              scale: 1,
+              originalWidth: 0,
+              originalHeight: 0
+            },
+            { 
+              img: img2, 
+              mask: mask2, 
+              pos: [50, 200], // 初期位置 [x, y]
+              dragging: false, 
+              offset: [0, 0],
+              scale: 1,
+              originalWidth: 0,
+              originalHeight: 0
+            },
+            { 
+              img: img3, 
+              mask: mask3, 
+              pos: [150, 200], // 初期位置 [x, y]
+              dragging: false, 
+              offset: [0, 0],
+              scale: 1,
+              originalWidth: 0,
+              originalHeight: 0
+            },
+            // 新しい画像とマスクを追加する場合は、以下のように配列に追加
+            // { 
+            //   img: img3, 
+            //   mask: mask3, 
+            //   pos: [50, 350], // 新しい位置を指定
+            //   dragging: false, 
+            //   offset: [0, 0],
+            //   scale: 1,
+            //   originalWidth: 0,
+            //   originalHeight: 0
+            // }
+          ];
+        };
+
+        p.setup = function() {
+          // ウィンドウサイズに基づいてキャンバスサイズを設定
+          const canvasWidth = width - 30;
+          const canvasHeight = height - 100;
+          p.createCanvas(canvasWidth, canvasHeight);
+
+          // 画像とマスクをリサイズ（キャンバスサイズに合わせる）
+          for (let obj of images) {
+            // 画像のアスペクト比を保持してリサイズ
+            const aspectRatio = obj.img.width / obj.img.height;
+            let newWidth, newHeight;
+            
+            if (aspectRatio > 1) {
+              // 横長の画像
+              newWidth = canvasWidth;
+              newHeight = canvasWidth / aspectRatio;
+            } else {
+              // 縦長の画像
+              newHeight = canvasHeight;
+              newWidth = canvasHeight * aspectRatio;
+            }
+            
+            obj.img.resize(newWidth, newHeight);
+            // マスクは元のサイズのまま
+            obj.mask.resize(canvasWidth, canvasHeight);
+            obj.originalWidth = obj.img.width;
+            obj.originalHeight = obj.img.height;
+          }
+
+          p.imageMode(p.CORNER);
+          p.noLoop();
+        };
+
+        // ウィンドウサイズが変更された時の処理
+        p.windowResized = function() {
+          const canvasWidth = width;
+          const canvasHeight = height;
+          p.resizeCanvas(canvasWidth, canvasHeight);
+
+          // 画像とマスクを新しいサイズに合わせてリサイズ
+          for (let obj of images) {
+            obj.img.resize(canvasWidth, canvasHeight);
+            obj.mask.resize(canvasWidth, canvasHeight);
+          }
+          p.redraw();
+        };
+
+        p.draw = function() {
+          p.background(0, 102, 153);
+
+          for (let obj of images) {
+            let g = p.createGraphics(p.width, p.height);
+            
+            // スケールを適用した画像を描画
+            g.push();
+            g.translate(obj.pos[0], obj.pos[1]);
+            g.scale(obj.scale);
+            g.image(obj.img, 0, 0);
+            g.pop();
+
+            let maskedImg = g.get();
+            maskedImg.mask(obj.mask);
+
+            p.image(maskedImg, 0, 0);
+          }
+        };
+
+        // 2点間の距離を計算する関数
+        function getDistance(touch1, touch2) {
+          return p.dist(touch1.x, touch1.y, touch2.x, touch2.y);
+        }
+
+        p.touchStarted = function() {
+          if (p.touches.length === 2) {
+            // ピンチ操作の開始
+            initialDistance = getDistance(p.touches[0], p.touches[1]);
+            for (let obj of images) {
+              if (obj.dragging) {
+                initialScale = obj.scale;
+                break;
+              }
+            }
+          } else if (p.touches.length === 1) {
+            // シングルタップの処理
+            const currentTime = Date.now();
+            const touchX = p.touches[0].x;
+            const touchY = p.touches[0].y;
+
+            // マスク領域内でのタップをチェック
+            for (let i = 0; i < images.length; i++) {
+              const obj = images[i];
+              let [x, y] = obj.pos;
+              let mx = touchX - x;
+              let my = touchY - y;
+
+              if (mx < 0 || my < 0 || mx >= obj.img.width || my >= obj.img.height) continue;
+
+              let maskColor = obj.mask.get(touchX, touchY);
+              let alpha = maskColor[3];
+
+              if (alpha > 10) {
+                // マスク領域内でのタップを検出
+                if (currentTime - lastTapTime < doubleTapThreshold) {
+                  // ダブルタップの場合
+                  console.log(`画像${i + 1}がダブルタップされました`);
+                  handleImageTap(i);
+                  // ここにダブルタップ時の処理を追加
+                } else {
+                  // シングルタップの場合
+                  obj.dragging = true;
+                  obj.offset = [mx, my];
+                  // handleImageTap(i);
+                }
+                lastTapTime = currentTime;
+                break;
+              }
+            }
+          }
+          return false;
+        };
+
+        p.touchMoved = function() {
+          if (p.touches.length === 2) {
+            // ピンチ操作の処理
+            let currentDistance = getDistance(p.touches[0], p.touches[1]);
+            let scaleFactor = currentDistance / initialDistance;
+            
+            for (let obj of images) {
+              if (obj.dragging) {
+                obj.scale = initialScale * scaleFactor;
+                // スケールの制限
+                obj.scale = p.constrain(obj.scale, 0.5, 3);
+                p.redraw();
+                break;
+              }
+            }
+          } else if (p.touches.length === 1) {
+            // 通常のドラッグ操作
+            for (let obj of images) {
+              if (obj.dragging) {
+                obj.pos = [p.touches[0].x - obj.offset[0], p.touches[0].y - obj.offset[1]];
+                p.redraw();
+              }
+            }
+          }
+          return false;
+        };
+
+        p.touchEnded = function() {
+          for (let obj of images) {
+            obj.dragging = false;
+          }
+          return false;
+        };
+
+        // マウスイベントも残しておく（デスクトップ用）
+        p.mousePressed = p.touchStarted;
+        p.mouseDragged = p.touchMoved;
+        p.mouseReleased = p.touchEnded;
+
+        /////////////////////////////////// ここまでp5.jsを貼り付け ///////////////////////////////////
+      };
+
+      // p5インスタンスを作成
+      p5Instance.current = new p5(sketch, canvasRef.current);
     };
 
-    // タッチイベントのデフォルト動作を防止
-    document.addEventListener('touchmove', preventDefault, { passive: false });
-    document.addEventListener('touchstart', preventDefault, { passive: false });
+    loadP5();
 
+    // クリーンアップ
     return () => {
-      document.removeEventListener('touchmove', preventDefault);
-      document.removeEventListener('touchstart', preventDefault);
+      if (p5Instance.current) {
+        p5Instance.current.remove();
+      }
     };
-  }, []);
-
-  const setup = (p5, canvasParentRef) => {
-    const canvas = p5.createCanvas(window_width-20, window_height-150).parent(canvasParentRef);
-    // キャンバスのボーダーを設定
-    canvas.style('border', '2px solid black');
-    
-    // 背景画像の読み込み
-    p5.loadImage(transparentImg, (loadedBgImg) => {
-      setBgImg(loadedBgImg);
-    });
-
-    // マスク画像の読み込み
-    p5.loadImage(maskImg, (loadedMask) => {
-      setMask(loadedMask);
-    });
-
-    // 1つ目の画像の読み込み
-    p5.loadImage(img1, (loadedImg) => {
-      setImg1Loaded(loadedImg);
-      // 初期サイズを画像のアスペクト比を考慮して設定
-      const aspectRatio = loadedImg.width / loadedImg.height;
-      setImage1Size(200 * aspectRatio);
-    });
-
-    // 2つ目の画像の読み込み
-    p5.loadImage(img2, (loadedImg) => {
-      setImg2Loaded(loadedImg);
-      // 初期サイズを画像のアスペクト比を考慮して設定
-      const aspectRatio = loadedImg.width / loadedImg.height;
-      setImage2Size(200 * aspectRatio);
-    });
-  };
-
-  const draw = (p5) => {
-    // 背景をクリア
-    p5.clear();
-    
-    // 背景画像の表示
-    if (bgImg) {
-      p5.imageMode(p5.CORNER);
-      p5.image(bgImg, 0, 0, p5.width, p5.height);
-    } else {
-      p5.background(220);
-    }
-
-    // 1つ目の画像の表示
-    if (img1Loaded) {
-      p5.imageMode(p5.CENTER);
-      p5.image(
-        img1Loaded,
-        image1X,
-        image1Y,
-        image1Size,
-        image1Size / (img1Loaded.width / img1Loaded.height)
-      );
-    }
-
-    // 2つ目の画像の表示
-    if (img2Loaded) {
-      p5.imageMode(p5.CENTER);
-      p5.image(
-        img2Loaded,
-        image2X,
-        image2Y,
-        image2Size,
-        image2Size / (img2Loaded.width / img2Loaded.height)
-      );
-    }
-
-    // マスク画像の表示（固定）
-    if (mask) {
-      p5.imageMode(p5.CENTER);
-      p5.image(
-        mask,
-        p5.width/2,
-        p5.height/2,
-        p5.width,
-        p5.height
-      );
-    }
-  };
-
-  const mousePressed = (p5) => {
-    if (img1Loaded) {
-      // 1つ目の画像の中心からの距離を計算
-      const d1 = p5.dist(p5.mouseX, p5.mouseY, image1X, image1Y);
-      if (d1 < image1Size/2) {
-        setIsDragging1(true);
-        setActiveImage(1);
-        return;
-      }
-    }
-    if (img2Loaded) {
-      // 2つ目の画像の中心からの距離を計算
-      const d2 = p5.dist(p5.mouseX, p5.mouseY, image2X, image2Y);
-      if (d2 < image2Size/2) {
-        setIsDragging2(true);
-        setActiveImage(2);
-        return;
-      }
-    }
-  };
-
-  const mouseReleased = () => {
-    setIsDragging1(false);
-    setIsDragging2(false);
-    setActiveImage(null);
-  };
-
-  const mouseDragged = (p5) => {
-    if (isDragging1) {
-      setImage1X(p5.mouseX);
-      setImage1Y(p5.mouseY);
-    }
-    if (isDragging2) {
-      setImage2X(p5.mouseX);
-      setImage2Y(p5.mouseY);
-    }
-  };
-
-  const touchStarted = (p5) => {
-    if (p5.touches.length === 2) {
-      // 2本の指でのタッチ開始時
-      const d = p5.dist(
-        p5.touches[0].x, p5.touches[0].y,
-        p5.touches[1].x, p5.touches[1].y
-      );
-      setInitialPinchDistance(d);
-      if (activeImage === 1) {
-        setInitialImageSize(image1Size);
-      } else if (activeImage === 2) {
-        setInitialImageSize(image2Size);
-      }
-    } else if (p5.touches.length === 1) {
-      // 1本の指でのタッチ開始時
-      if (img1Loaded) {
-        const d1 = p5.dist(p5.touches[0].x, p5.touches[0].y, image1X, image1Y);
-        if (d1 < image1Size/2) {
-          setIsDragging1(true);
-          setActiveImage(1);
-          return;
-        }
-      }
-      if (img2Loaded) {
-        const d2 = p5.dist(p5.touches[0].x, p5.touches[0].y, image2X, image2Y);
-        if (d2 < image2Size/2) {
-          setIsDragging2(true);
-          setActiveImage(2);
-          return;
-        }
-      }
-    }
-    return false;
-  };
-
-  const touchEnded = () => {
-    setIsDragging1(false);
-    setIsDragging2(false);
-    setInitialPinchDistance(null);
-    setInitialImageSize(null);
-    setActiveImage(null);
-  };
-
-  const touchMoved = (p5) => {
-    if (p5.touches.length === 2 && initialPinchDistance !== null) {
-      // ピンチイン・アウトの処理
-      const currentDistance = p5.dist(
-        p5.touches[0].x, p5.touches[0].y,
-        p5.touches[1].x, p5.touches[1].y
-      );
-      const scale = currentDistance / initialPinchDistance;
-      const newSize = initialImageSize * scale;
-      
-      // サイズの制限（最小50px、最大800px）
-      const limitedSize = Math.min(Math.max(newSize, 50), 800);
-      
-      if (activeImage === 1) {
-        setImage1Size(limitedSize);
-      } else if (activeImage === 2) {
-        setImage2Size(limitedSize);
-      }
-    } else if (p5.touches.length === 1) {
-      // ドラッグの処理
-      if (isDragging1) {
-        setImage1X(p5.touches[0].x);
-        setImage1Y(p5.touches[0].y);
-      }
-      if (isDragging2) {
-        setImage2X(p5.touches[0].x);
-        setImage2Y(p5.touches[0].y);
-      }
-    }
-    return false;
-  };
+  }, [width, height]);
 
   return (
-    <div 
-      className="flex justify-center items-center min-h-screen"
-      style={{ 
-        touchAction: 'none',
-        overflow: 'hidden',
-        position: 'fixed',
-        width: '100%',
-        height: '100%'
-      }}
-    >
-      <Sketch 
-        setup={setup} 
-        draw={draw} 
-        mousePressed={mousePressed}
-        mouseReleased={mouseReleased}
-        mouseDragged={mouseDragged}
-        touchStarted={touchStarted}
-        touchEnded={touchEnded}
-        touchMoved={touchMoved}
+    <div>
+      <div 
+        ref={canvasRef} 
+        style={{ 
+          width: '100%', 
+          height: '100vh',
+          touchAction: 'none' // モバイルでのタッチ操作を最適化
+        }}
       />
+      
+      <Overlay 
+        isOpen={selectedImageIndex !== null} 
+        onClose={() => setSelectedImageIndex(null)}
+      >
+        {selectedImageIndex !== null && (
+          <div className="overlay-content">
+            <h2>画像 {selectedImageIndex + 1}</h2>
+            <p>ここにボタン（プロンプト）を表示</p>
+          </div>
+        )}
+      </Overlay>
     </div>
   );
-}
+};
+
+export default DrawingApp;
